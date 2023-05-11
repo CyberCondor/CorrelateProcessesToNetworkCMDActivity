@@ -58,4 +58,4 @@ $TasksWithCommandLineActivity | sort CommandLine | fl
 write-Output "---"
 Write-Output "`nRemote Addresses:"
 $RemoteAddresses | select ProcessName,RemoteAddress,RemotePort,LocalAddress,LocalPort,ProcessID,NetProcessID,Handles,State,Path,CommandLine | sort ProcessID | fl
-$RemoteAddresses | select RemoteAddress,ProcessName,ProcessID | ft
+$RemoteAddresses | select RemoteAddress,RemotePort,LocalPort,ProcessName,ProcessID | ft
