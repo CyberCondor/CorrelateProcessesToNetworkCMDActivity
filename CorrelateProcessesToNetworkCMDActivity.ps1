@@ -1,61 +1,38 @@
-﻿$tasklist = Get-Process
-$netstats = Get-NetTCPConnection
-$CommandLine = Get-WmiObject win32_process | select CommandLine,ProcessID
-$FreshStats = @()
-$TasksWithoutNetworkStats = @()
-$TasksWithCommandLineActivity = @()
-$RemoteAddresses = @()
+$NetworkConnections                   = Get-NetTCPConnection
+$ProcessList                          = Get-WmiObject win32_process | select ProcessName,ExecutablePath,CommandLine,Handle,HandleCount,ProcessID,ParentName,ParentProcessId
+$CorrelatedProcessesToNetworkActivity = [System.Collections.Generic.List[PSObject]]::New()
+
 Write-Host "Processing...`n"
-foreach($task in $tasklist){
-    $TaskFoundWithNetworkStat = $false
-    foreach($Command in $CommandLine){
-        foreach($netstat in $netstats){
-            if(($task.Id -eq $netstat.OwningProcess) -and ($task.Id -eq $Command.ProcessID)){
-                $TaskFoundWithNetworkStat = $true
-                $FreshStats += New-Object PSObject -Property @{
-                    ProcessName=$task.ProcessName;
-                    Handles=$task.Handles;
-                    ProcessID=$task.Id;
-                    NetProcessID=$netstat.OwningProcess;
-                    LocalAddress=$netstat.LocalAddress;
-                    LocalPort=$netstat.LocalPort;
-                    RemoteAddress=$netstat.RemoteAddress;
-                    RemotePort=$netstat.RemotePort;
-                    State=$netstat.State;
-                    Path=$Task.Path;
-                    CommandLine=$Command.CommandLine}
-            }
+foreach($Process in $ProcessList){
+    foreach($Process2 in $ProcessList){if($Process2.ProcessID -eq $Process.ParentProcessId){$Process.ParentName = $Process2.ProcessName}}
+    foreach($NetworkConnection in $NetworkConnections){
+        if(($Process.ProcessID -eq $NetworkConnection.OwningProcess)){
+            $CorrelatedProcessesToNetworkActivity.add([PSCustomObject]@{
+                ProcessName=$Process.ProcessName;
+                PID=$Process.ProcessID;
+                NetPID=$NetworkConnection.OwningProcess;
+                ParentPID=$Process.ParentProcessId;
+                ParentName=$Process.ParentName;
+                LocalAddress=$NetworkConnection.LocalAddress;
+                LocalPort=$NetworkConnection.LocalPort;
+                RemotePort=$NetworkConnection.RemotePort;
+                RemoteAddress=$NetworkConnection.RemoteAddress;
+                State=$NetworkConnection.State;
+                ExecutablePath=$Process.ExecutablePath;
+                CommandLine=$Process.CommandLine;
+                AppliedSetting=$NetworkConnection.AppliedSetting})
         }
     }
-    if($TaskFoundWithNetworkStat -eq $false){$TasksWithoutNetworkStats += $Task | Select ID,ProcessName,Path}
-}
-foreach($FreshStat in $FreshStats){
-    if($FreshStat.CommandLine -ne $null){
-        $TasksWithCommandLineActivity += $FreshStat | select ProcessID,ProcessName,CommandLine
-    }
-}
-foreach($RemoteAddress in $FreshStats){
-    if(($RemoteAddress.RemoteAddress -ne "::") -and ($RemoteAddress.RemoteAddress -ne "127.0.0.1") -and ($RemoteAddress.RemoteAddress -ne "0.0.0.0")){
-        $RemoteAddresses += $RemoteAddress
-    }
 }
 
-Write-Output "`nTasks Found WITHOUT Network Stats:"
-$TasksWithoutNetworkStats | sort Path,Id,ProcessName | ft -AutoSize
+write-Output "---"
+Write-Output "`nProcesses:"
+$ProcessList | select ProcessName,ProcessID,ParentProcessId,ParentName,ExecutablePath,CommandLine | Sort ExecutablePath,CommandLine,ParentProcessId,ProcessID | ft
 
 write-Output "---"
-Write-Output "`nTasks Found WITH Network Stats:"
-$FreshStats | select ProcessName,ProcessID,State,LocalAddress,LocalPort,RemoteAddress,RemotePort,Handles | sort ProcessName | ft
+Write-Output "`nProcesses Found WITH Network Connections:"
+$CorrelatedProcessesToNetworkActivity | select ProcessName,PID,ParentPID,ParentName,State,LocalAddress,LocalPort,RemoteAddress,RemotePort,AppliedSetting | sort RemotePort,State,RemoteAddress,PID,LocalPort,ProcessName,ParentName | ft
 
 write-Output "---"
-Write-Output "`nPath of Tasks Found WITH Network Stats:"
-$FreshStats | select ProcessName,ProcessID,Path | sort Path,ProcessId,ProcessName | ft
-
-write-Output "---"
-Write-Output "`nTasks With CommandLine Activity:"
-$TasksWithCommandLineActivity | sort CommandLine | fl
-
-write-Output "---"
-Write-Output "`nRemote Addresses:"
-$RemoteAddresses | select ProcessName,RemoteAddress,RemotePort,LocalAddress,LocalPort,ProcessID,NetProcessID,Handles,State,Path,CommandLine | sort ProcessID | fl
-$RemoteAddresses | select RemoteAddress,RemotePort,LocalPort,ProcessName,ProcessID | ft
+Write-Output "`nExecutablePath and CommandLine Activity of Processes Found WITH Network Connections:"
+$CorrelatedProcessesToNetworkActivity | where{($_.CommandLine -ne $null) -and($_.ExecutablePath -ne $null)} | select ProcessName,PID,ParentPID,ParentName,CommandLine,ExecutablePath | sort ExecutablePath,CommandLine,PID | fl
